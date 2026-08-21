@@ -26,10 +26,10 @@ ifos = [get_H1(), get_L1(), get_V1()]
 
 # Set to [] if you only want to make the catalogue and calculate the times, without downloading strain.
 # ------------------------------------------------------------
-SELECTED_GRBS = ["GRB190728271", "GRB190724031"]
+SELECTED_GRBS = ["GRB170817529"]
 catalogue_read = False
 
-OUTPUT_DIR = "data/GRB_data"
+OUTPUT_DIR = "SFM_baseline_GW170817_GRB_extended/data"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 catalogue_file = os.path.join(OUTPUT_DIR,"grb_catalog.csv")
 
@@ -171,7 +171,8 @@ if catalogue_read == True:
     print(f"Number of candidates: {len(candidate_grbs)}")
 
     candidate_grbs.to_csv(
-        catalogue_file, index=False
+        catalogue_file, index=False,
+
     )
 
     print()
