@@ -232,15 +232,14 @@ def logprior_fn(x, prior_type):
 # 3. EVENT CONFIGURATION & DETECTOR DATA
 # ============================================================================
 
-
 GRB_DATA_DIR = os.environ.get(
     'GRB_DATA_DIR',
-    'SFM_baseline_GW170817_GRB_extended/data'
+    '../data'
 )
 
 GRB_CATALOGUE = os.environ.get(
     'GRB_CATALOGUE',
-    'SFM_baseline_GW170817_GRB_extended/data/grb_catalog.csv'
+    '../data/grb_catalog.csv'
 )
 
 grb_df = pd.read_csv(GRB_CATALOGUE)
@@ -344,23 +343,56 @@ PSD_OVERLAP_FRAC = 0.5
 PSD_METHOD = 'median'
 
 
+#checks successful detectors from metadata
+successful_detectors = metadata["detectors"]
+
+print("\n===== DETECTORS FROM METADATA =====")
+print(successful_detectors)
+print("===================================\n")
+
+
+detector_getters = {
+    "H1": get_H1,
+    "L1": get_L1,
+    "V1": get_V1,
+}
+
 detectors = []
 
-for ifo in [get_H1(), get_L1(), get_V1()]:
+for ifo_name in successful_detectors:
+
+    # Get the appropriate detector object
+    ifo = detector_getters[ifo_name]()
+
     t_det = time.time()
 
-    # Load data
-    strain_data = load_gwosc_local(ifo.name, start, end)
-    psd_ts = load_gwosc_local_gwpy(ifo.name, psd_start, psd_end)
+    print(f"\nLoading {ifo_name}...")
+
+
+    strain_data = load_gwosc_local(
+        ifo.name,
+        start,
+        end,
+    )
+
+    psd_ts = load_gwosc_local_gwpy(
+        ifo.name,
+        psd_start,
+        psd_end,
+    )
 
     t_fetch = time.time() - t_det
 
-    # FFT
-    strain_data.set_tukey_window(alpha=tukey_alpha)
+
+    strain_data.set_tukey_window(
+        alpha=tukey_alpha
+    )
+
     strain_data.fft()
+
     ifo.set_data(strain_data)
 
-    # PSD
+
     t_psd0 = time.time()
 
     psd_alpha = 2 * roll_off / PSD_FFT_LENGTH
@@ -376,44 +408,37 @@ for ifo in [get_H1(), get_L1(), get_V1()]:
         psd_gwpy.frequencies.value,
         psd_gwpy.value,
         kind='linear',
-        fill_value=(psd_gwpy.value[0], psd_gwpy.value[-1]),
+        fill_value=(
+            psd_gwpy.value[0],
+            psd_gwpy.value[-1],
+        ),
         bounds_error=False,
     )
 
-    strain_freqs = np.array(strain_data.frequencies)
+    strain_freqs = np.array(
+        strain_data.frequencies
+    )
 
     psd_obj = PowerSpectrum(
-        values=jnp.array(psd_interp_fn(strain_freqs)),
-        frequencies=jnp.array(strain_freqs),
+        values=jnp.array(
+            psd_interp_fn(strain_freqs)
+        ),
+        frequencies=jnp.array(
+            strain_freqs
+        ),
         name=ifo.name,
     )
 
     ifo.set_psd(psd_obj)
+
     t_psd = time.time() - t_psd0
 
-    ifo.set_frequency_bounds(fmin, fmax)
+    ifo.set_frequency_bounds(
+        fmin,
+        fmax,
+    )
 
-    # ========================================================
-    # Check whether this detector is usable
-    # ========================================================
-
-    data = ifo.sliced_fd_data
-    psd = ifo.sliced_psd
-
-    data_finite = bool(jnp.all(jnp.isfinite(data)))
-    psd_finite = bool(jnp.all(jnp.isfinite(psd)))
-    psd_positive = bool(jnp.all(psd > 0))
-
-    print(f"\n===== {ifo.name} =====")
-    print(f"Data finite: {data_finite}")
-    print(f"PSD finite:  {psd_finite}")
-    print(f"PSD > 0:    {psd_positive}")
-
-    if data_finite and psd_finite and psd_positive:
-        detectors.append(ifo)
-        print(f"✓ {ifo.name} INCLUDED")
-    else:
-        print(f"✗ {ifo.name} EXCLUDED")
+    detectors.append(ifo)
 
     print(
         f"{ifo.name}: "
@@ -423,13 +448,10 @@ for ifo in [get_H1(), get_L1(), get_V1()]:
     )
 
 
-# ============================================================
-# Final detector list
-# ============================================================
-
 print("\n===== DETECTORS USED =====")
 print([ifo.name for ifo in detectors])
 print("===========================\n")
+
 N_DET = len(detectors)
 
 
@@ -624,7 +646,7 @@ for run_name, prior_type in runs:
     next_report = 500
 
     with tqdm.tqdm(desc="Dead points", initial=num_delete, unit=" dead points") as pbar:
-        while not state.integrator.logZ_live - state.integrator.logZ < -2:
+        while not state.integrator.logZ_live - state.integrator.logZ < -3:
             (state, rng_key), dead_info = one_step((state, rng_key), None)
             dead.append(dead_info)
             dead_points += num_delete

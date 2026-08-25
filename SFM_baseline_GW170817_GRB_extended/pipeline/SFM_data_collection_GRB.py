@@ -1,47 +1,53 @@
 import os
 os.environ["JAX_PLATFORMS"] = "cpu"
-
 import jax
 jax.config.update('jax_enable_x64', True)
-
 import pickle
 import numpy as np
 import pandas as pd
-
 from astropy.time import Time
 from astropy.coordinates import SkyCoord
 import astropy.units as u
-
 from astroquery.heasarc import Heasarc
 from gwpy.timeseries import TimeSeries
 from gwosc import datasets
-
 from jimgw.core.single_event.detector import get_H1, get_L1, get_V1
 
 ifos = [get_H1(), get_L1(), get_V1()]
 
-# ============================================================
-# SETTINGS
-# ============================================================
 
-# Set to [] if you only want to make the catalogue and calculate the times, without downloading strain.
-# ------------------------------------------------------------
-SELECTED_GRBS = ["GRB170817529"]
-catalogue_read = False
 
-OUTPUT_DIR = "SFM_baseline_GW170817_GRB_extended/data"
+
+####################
+##INITIAL SETTINGS##
+####################
+
+#SELECTED_GRBS = []  #leave empty to process all candidate GRBs
+SELECTED_GRBS = ["GRB250119945"]
+catalogue_read = True   #make false to use current catalogue
+
+
+#SAVING SETTINGS
+OUTPUT_DIR = "../data"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 catalogue_file = os.path.join(OUTPUT_DIR,"grb_catalog.csv")
 
-#settings for data collection
+#DATA COLLECTION SETTINGS
 duration = 128
 post_trigger_duration = 0
 psd_pad = 16
 psd_duration = 1024
 
-#recreates GRB catalogue
-if catalogue_read == True:
 
+
+
+
+##########################
+##CREATING GRB CATALOGUE##
+##########################
+
+if catalogue_read == True:
+    #Ligo observing runs
     observing_runs = {
         "O1": datasets.run_segment("O1"),
         "O2": datasets.run_segment("O2"),
@@ -50,24 +56,19 @@ if catalogue_read == True:
         "O4a": datasets.run_segment("O4a"),
         "O4b": datasets.run_segment("O4b"),
     }
-
-
     def find_run(gps):
         """
         Return the LIGO observing run containing the supplied GPS time.
         """
-
         for run, (start, end) in observing_runs.items():
-
             if start <= gps <= end:
                 return run
-
         return None
 
+    #converts into correct units
     def process_grb_table(table):
         """
         Convert the HEASARC Fermi GBM catalogue into a pandas DataFrame.
-
         Returns:
             GRB      : GRB name
             GPS      : trigger time in GPS seconds
@@ -75,25 +76,20 @@ if catalogue_read == True:
             DEC_rad  : declination in radians
             T90_s    : T90 duration in seconds
         """
-
         results = []
-
         for row in table:
-
             # HEASARC trigger_time is MJD
             gps_time = Time(
                 row["trigger_time"],
                 format="mjd",
                 scale="utc",
             ).gps
-
             # HEASARC RA/DEC are degrees
             skycoord = SkyCoord(
                 ra=row["ra"],
                 dec=row["dec"],
                 unit="deg",
             )
-
             results.append({
                 "GRB": row["name"],
                 "GPS": gps_time,
@@ -101,20 +97,12 @@ if catalogue_read == True:
                 "DEC_rad": skycoord.dec.radian,
                 "T90_s": row["t90"],
             })
-
         return pd.DataFrame(results)
 
-
-
-
-    # ============================================================
-    # QUERY HEASARC
-    # ============================================================
-
+    #queries the GRB catalogue
     print("=" * 70)
     print("QUERYING HEASARC FERMI GBM CATALOGUE")
     print("=" * 70)
-
     h = Heasarc()
 
     #can change catalogue requirements
@@ -130,25 +118,18 @@ if catalogue_read == True:
     WHERE t90 < 3
       AND error_radius < 10
     """)
-
-
     grb_df = process_grb_table(table)
-
     print(f"Found {len(grb_df)} short GRBs.")
-
     grb_df["LIGO_run"] = grb_df["GPS"].apply(find_run)
-
 
     # Only retain GRBs occurring during an observing run
     candidate_grbs = grb_df.dropna(
         subset=["LIGO_run"]
     ).copy()
-
     candidate_grbs = candidate_grbs.reset_index(drop=True)
-
     candidate_grbs.index.name = "index"
 
-
+    #prints catalogue
     print()
     print("=" * 70)
     print("GRBs WITHIN LIGO OBSERVING RUNS")
@@ -170,11 +151,11 @@ if catalogue_read == True:
     print()
     print(f"Number of candidates: {len(candidate_grbs)}")
 
+    #saves catalogue to csv
     candidate_grbs.to_csv(
         catalogue_file, index=False,
 
     )
-
     print()
     print(f"Saved candidate catalogue to:")
     print(f"  {catalogue_file}")
@@ -187,12 +168,9 @@ else:
 
 
 
-
-
-
-# ============================================================
-# DOWNLOAD / SAVE SELECTED GRBs
-# ============================================================
+##################################
+##DATA READ IN FOR SELECTED GRBS##
+##################################
 
 
 print()
@@ -200,48 +178,39 @@ print("=" * 70)
 print("DOWNLOADING SELECTED GRBs")
 print("=" * 70)
 
-print(f"Selected GRBs: {SELECTED_GRBS}")
+if len(SELECTED_GRBS) == 0:
+    grbs_to_process = candidate_grbs["GRB"].tolist()
+    print(f"Processing ALL {len(grbs_to_process)} candidate GRBs")
+else:
+    grbs_to_process = SELECTED_GRBS
+    print(f"Processing selected GRBs: {grbs_to_process}")
 
 
-for grb_name in SELECTED_GRBS:
-
-    # --------------------------------------------------------
-    # Find GRB in catalogue by name
-    # --------------------------------------------------------
-
+for grb_name in grbs_to_process:
+    #finds GRB name in catalogue
     matches = candidate_grbs[
         candidate_grbs["GRB"] == grb_name
     ]
-
     if len(matches) == 0:
         print(
             f"WARNING: GRB {grb_name} does not exist "
             f"in the candidate catalogue. Skipping."
         )
         continue
-
     if len(matches) > 1:
         print(
             f"WARNING: Multiple entries found for {grb_name}. "
             f"Using the first."
         )
-
     row = matches.iloc[0]
 
-    # --------------------------------------------------------
-    # GRB information
-    # --------------------------------------------------------
-
+    #collecting metadata
     gps = float(row["GPS"])
-
     start = gps - (duration - post_trigger_duration)
     end = gps + post_trigger_duration
-
     psd_start = start - psd_pad - psd_duration
     psd_end = start - psd_pad
-
     ligo_run = row["LIGO_run"]
-
     ra = float(row["RA_rad"])
     dec = float(row["DEC_rad"])
 
@@ -265,28 +234,20 @@ for grb_name in SELECTED_GRBS:
     print(f"  start = {psd_start}")
     print(f"  end   = {psd_end}")
 
-    # --------------------------------------------------------
-    # GRB output directory
-    # --------------------------------------------------------
-
+    #GRB specific output directory
     grb_dir = os.path.join(
         OUTPUT_DIR,
         grb_name,
     )
-
     os.makedirs(
         grb_dir,
         exist_ok=True,
     )
-
     print()
     print(f"GRB directory:")
     print(f"  {grb_dir}")
 
-    # --------------------------------------------------------
-    # Metadata
-    # --------------------------------------------------------
-
+    #adding GRB and strain segment info to metadata
     metadata = {
         "GRB": grb_name,
         "GPS": gps,
@@ -308,70 +269,78 @@ for grb_name in SELECTED_GRBS:
         "psd_end": psd_end,
     }
 
-    # --------------------------------------------------------
-    # Detector data
-    # --------------------------------------------------------
-
+    #reading in detector data
     detector_data = {}
-
     for ifo in ifos:
-
         print()
         print(f"Downloading {ifo.name}...")
+        try:
+            ts = TimeSeries.fetch_open_data(
+                ifo.name,
+                psd_start,
+                end,
+                version=2,
+            )
+            strain = np.asarray(ts.value)
 
-        ts = TimeSeries.fetch_open_data(
-            ifo.name,
-            psd_start,
-            end,
-            version=2,
-        )
+            #check if data is finite
+            data_finite = np.all(np.isfinite(strain))
+            print(f"\n===== {ifo.name} DATA CHECK =====")
+            print(f"Shape:       {strain.shape}")
+            print(f"Data finite: {data_finite}")
+            print(f"NaNs:        {np.sum(np.isnan(strain))}")
+            if not data_finite:
+                print(
+                    f"✗ {ifo.name} EXCLUDED: "
+                    f"data contains NaNs or non-finite values"
+                )
+                continue
 
-        strain_file = os.path.join(
-            grb_dir,
-            f"{grb_name}_{ifo.name}.hdf5",
-        )
+            #saves useable data to hdf5 file
+            strain_file = os.path.join(
+                grb_dir,
+                f"{grb_name}_{ifo.name}.hdf5",
+            )
+            ts.write(
+                strain_file,
+                format="hdf5",
+                overwrite=True,
+            )
+            detector_data[ifo.name] = strain_file
+            print(
+                f"✓ {ifo.name} INCLUDED"
+            )
+            print(
+                f"Saved {ifo.name}: {strain_file}"
+            )
 
-        ts.write(
-            strain_file,
-            format="hdf5",
-            overwrite=True,
-        )
+        #excludes detectors with missing data
+        except Exception as e:
+            print(
+                f"✗ {ifo.name} EXCLUDED: "
+                f"could not download/read data"
+            )
+            print(f"  Reason: {type(e).__name__}: {e}")
+            continue
+    
+    #saves list of successful detectors to metadata
+    successful_detectors = list(detector_data.keys())
+    print()
+    print("=" * 70)
+    print("SUCCESSFUL DETECTORS")
+    print("=" * 70)
+    print(successful_detectors)
+    metadata["detectors"] = successful_detectors
 
-        print(
-            f"Saved {ifo.name}: {strain_file}"
-        )
-
-        detector_data[ifo.name] = strain_file
-
-    # --------------------------------------------------------
-    # Save detector file paths in metadata
-    # --------------------------------------------------------
-
-    metadata["detector_files"] = detector_data
-
-    # --------------------------------------------------------
-    # Save metadata
-    # --------------------------------------------------------
-
+    #saves metadata to pickle file
     metadata_file = os.path.join(
         grb_dir,
         f"{grb_name}_metadata.pkl",
     )
-
-    with open(
-        metadata_file,
-        "wb",
-    ) as f:
-        pickle.dump(
-            metadata,
-            f,
-        )
-
+    with open(metadata_file, "wb") as f:
+        pickle.dump(metadata, f)
     print()
-    print(
-        f"Saved metadata: {metadata_file}"
-    )
-
+    print(f"Saved metadata: {metadata_file}")
 
 print()
 print("=" * 70)

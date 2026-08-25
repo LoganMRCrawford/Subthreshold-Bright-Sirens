@@ -4,6 +4,7 @@ Heterodyned Nested Sampling for GW170817 — flat-in-z prior
 
 Variant of GW170817_heterodyned_1.py with one change:
   d_L prior: flat in redshift z (= uniform in d_L, LVK convention)
+  instead of Beta(3,1) ∝ d_L^2.
   H_0 prior remains log-uniform (unchanged from baseline).
 
 Usage:
@@ -17,11 +18,9 @@ Usage:
 # ============================================================================
 import os
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
-
 import argparse
 import jax
 jax.config.update('jax_enable_x64', True)
-
 import jax.numpy as jnp
 import jax.scipy.stats as stats
 import numpy as np
@@ -35,7 +34,6 @@ from anesthetic import NestedSamples
 from blackjax.ns.utils import finalise
 import pandas as pd
 import pickle
-
 from jimgw.core.single_event.detector import get_H1, get_L1, get_V1
 from jimgw.core.single_event.waveform import (
     RippleIMRPhenomD_NRTidalv2,
@@ -45,26 +43,13 @@ from jimgw.core.single_event.waveform import (
 )
 from jimgw.core.single_event.data import Data, PowerSpectrum
 from gwpy.timeseries import TimeSeries
-from jimgw.core.single_event.transform_utils import q_to_eta
-
-
-#imports plotting functions
-from _plot_utils import (
-    load_nested_csv,
-    map_from_hist,
-)
-
 
 # ============================================================================
 # 0.1. COMMAND-LINE ARGUMENTS
 # ============================================================================
-parser = argparse.ArgumentParser(description='Heterodyned nested sampling for GW170817')
-parser.add_argument('--phase-marginalization', action='store_true',
-                    help='Enable analytic phase marginalization (removes phase_c from sampling)')
-parser.add_argument('--output-dir', default='Results',
-                    help='Directory to write output CSV files (default: Results)')
-parser.add_argument('--n-live', type=int, default=5000,
-                    help='Number of live points (default: 5000)')
+parser = argparse.ArgumentParser(description='Unconditioned and conditioned nested sampling')
+parser.add_argument('--n-live', type=int, default=500,
+                    help='Number of live points (default: 500)')
 parser.add_argument('--num-delete', type=int, default=None,
                     help='Points deleted per NS iteration. Default: 0.3 * n_live (flatZ-script convention).')
 parser.add_argument('--n-bins', type=int, default=501,
@@ -79,41 +64,50 @@ parser.add_argument("--grb-names", nargs="+", type=str, required=True,
                     help="Names of GRBs to analyse from the saved GRB catalogue.")
 args = parser.parse_args()
 
-phase_marg = args.phase_marginalization
-output_dir = args.output_dir  #note doesn't match what I currently use
 
 #data-source = local
 #psd-source = self
-#ref-params = MAPS from transient run
 #took out narrow sky, overriding bounds or reference waveform, narrow sky, mode B
+#commented out H0 and vp fitting
 
+# Numerically stable log I_0 for phase marginalization:
+# log(I_0(x)) = log(i0e(x)) + x, where i0e(x) = exp(-|x|) * I_0(x)
+from jax.scipy.special import i0e
+
+@jax.jit
+def log_i0(x):
+    return jnp.log(i0e(x)) + x
 
 
 # ============================================================================
 # 1. EVENT CONFIGURATION & DETECTOR DATA
 # ============================================================================
 
-#finds selected GRB in the catalogue and returns gps, ra, dec etc from metadata file
+
 GRB_DATA_DIR = os.environ.get(
     'GRB_DATA_DIR',
-    'SFM_baseline_GW170817_GRB_extended/data'
+    '../data'
 )
 
 GRB_CATALOGUE = os.environ.get(
     'GRB_CATALOGUE',
-    'SFM_baseline_GW170817_GRB_extended/data/grb_catalog.csv'
+    '../data/grb_catalog.csv'
 )
 
 grb_df = pd.read_csv(GRB_CATALOGUE)
+
 print(f"Loaded GRB catalogue: {len(grb_df)} GRBs")
 
 
 grb_name = args.grb_names[0]
+
 matches = grb_df[grb_df["GRB"] == grb_name]
+
 if len(matches) == 0:
     raise ValueError(
         f"GRB {grb_name} not found in catalogue"
     )
+
 selected_grb = matches.iloc[0]
 
 print("\nSelected GRB:")
@@ -129,13 +123,16 @@ grb_dir = os.path.join(
 )
 
 metadata_filename = f"{grb_name}_metadata.pkl"
+
 metadata_file = os.path.join(
     grb_dir,
     metadata_filename
 )
 
+
 with open(metadata_file, "rb") as f:
     metadata = pickle.load(f)
+
 
 gps = float(metadata["GPS"])
 start = float(metadata["start"])
@@ -145,9 +142,9 @@ psd_end = float(metadata["psd_end"])
 grb_ra = float(metadata["RA_rad"])
 grb_dec = float(metadata["DEC_rad"])
 
-#settings
+
 fmin = 23.0
-fmax = 1024.0
+fmax = 2048.0
 duration = 128
 roll_off = 0.4
 tukey_alpha = 2 * roll_off / duration
@@ -165,7 +162,8 @@ print("=========================\n")
 
 t0 = time.time()
 
-#data read in tools and finding correct files
+# Local GWOSC HDF5 file mapping: ifo name -> file path
+
 GWOSC_LOCAL_FILES = {}
 
 for ifo_name in ["H1", "L1", "V1"]:
@@ -188,22 +186,13 @@ def load_gwosc_local_gwpy(ifo_name, gps_start, gps_end):
     return ts
 
 
-
-# Numerically stable log I_0 for phase marginalization:
-# log(I_0(x)) = log(i0e(x)) + x, where i0e(x) = exp(-|x|) * I_0(x)
-from jax.scipy.special import i0e
-
-@jax.jit
-def log_i0(x):
-    return jnp.log(i0e(x)) + x
-
-
 # ============================================================================
 # 2. PARAMETER CONFIGURATION (static arrays, no dicts in hot path)
 # ============================================================================
 # Aligned-spin tidal: 14 dims (phase-marg) / 15 dims (no marg).
 # in-plane spin params in spherical coords. d_L prior type stays 0 (uniform =
 # flat-in-z) for this flatZ-script variant.
+
 
 
 # Aligned-spin tidal layout (matches the historical 14-D vector).
@@ -223,33 +212,24 @@ I_MC, I_Q, I_S1Z, I_S2Z, I_IOTA, I_DL, I_TC = 0, 1, 2, 3, 4, 5, 6
 I_PSI, I_RA, I_DEC, I_L1, I_L2 = 7, 8, 9, 10, 11
 #I_H0, I_VP = 12, 13
 
-#extended tc prior
 _PRIOR_LO_BASE = [
     1.0, 0.125, -0.05, -0.05,             # M_c, q, s1_z, s2_z
     0.0, 20.0, -10.0,                       # iota, d_L, t_c
     0.0, 0.0, -jnp.pi / 2,                   # psi, ra, dec
-    0.0, 0.0,                        # lambda_1, lambda_2, 
-    #20.0, -1000.0,                    # H_0, v_p
+    0.0, 0.0,                # lambda_1, lambda_2,
+    #20.0, -1000.0,                 # H_0, v_p
 ]
 _PRIOR_HI_BASE = [
     2.0, 1.00, 0.05, 0.05,                # M_c, q, s1_z, s2_z
     jnp.pi, 800.0, 0.0,                     # iota, d_L, t_c
     jnp.pi, 2 * jnp.pi, jnp.pi / 2,         # psi, ra, dec
-    5000.0, 5000.0,             # lambda_1, lambda_2,
+    5000.0, 5000.0,          # lambda_1, lambda_2,
     #250.0, 1000.0,           # H_0, v_p
 ]
 # d_L prior type: 0 (uniform) instead of 3 (Beta(3,1)) — flat-in-z.
-#12 and 13 indices were 4 and 0 for H0 and VP
+#note removed final two items were 4 and 0 for both
 _PRIOR_TYPE_BASE_U = [0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0]
 _PRIOR_TYPE_BASE_C = [0, 0, 0, 0, 1, 0, 0, 0, 5, 5, 0, 0]
-if not phase_marg:
-    PARAM_NAMES.append("phase_c")
-    PARAM_LABELS.append(r"$\phi_c$")
-    I_PHASEC = len(PARAM_NAMES) - 1
-    _PRIOR_LO_BASE.append(0.0)
-    _PRIOR_HI_BASE.append(float(2 * jnp.pi))
-    _PRIOR_TYPE_BASE_U.append(0)  # uniform
-    _PRIOR_TYPE_BASE_C.append(0)  # uniform
 
 
 NUM_DIMS = len(PARAM_NAMES)
@@ -271,6 +251,7 @@ PRIOR_LO = jnp.array(_PRIOR_LO_BASE)
 PRIOR_HI = jnp.array(_PRIOR_HI_BASE)
 
 # Component mass bounds (applied as hard cut in M_c-q space).
+# Override via --m-comp-lo/--m-comp-hi (e.g. LVK low-spin BNS bounds [0.87, 1.74]).
 M_COMP_LO =  0.5    # M_sun
 M_COMP_HI =  7.7    # M_sun
 
@@ -327,6 +308,7 @@ def logprior_fn(x, prior_type):
          jnp.where(prior_type == 4, lp_log,
                     lp_gaussian)))))
 
+
     total = jnp.sum(lp)
 
     # Component mass constraint: m1, m2 must be in [M_COMP_LO, M_COMP_HI]
@@ -353,36 +335,63 @@ def logprior_fn(x, prior_type):
     return total
 
 
-marg_tag = 'PhaseMarg' if phase_marg else 'NoMarg'
-import os; os.makedirs(output_dir, exist_ok=True)
-label = f'{output_dir}/{marg_tag}_Transient'
-
-
 # PSD estimation config (matching bilby/kazewong):
 #   - 32s Tukey-windowed segments, 50% overlap, median averaging
 PSD_FFT_LENGTH = 32  # seconds per FFT segment
 PSD_OVERLAP_FRAC = 0.5
 PSD_METHOD = 'median'
 
-#reading strain data and calculating PSD
+
+#checks successful detectors from metadata
+successful_detectors = metadata["detectors"]
+
+print("\n===== DETECTORS FROM METADATA =====")
+print(successful_detectors)
+print("===================================\n")
+
+
+detector_getters = {
+    "H1": get_H1,
+    "L1": get_L1,
+    "V1": get_V1,
+}
 
 detectors = []
 
-for ifo in [get_H1(), get_L1(), get_V1()]:
+for ifo_name in successful_detectors:
+
+    # Get the appropriate detector object
+    ifo = detector_getters[ifo_name]()
+
     t_det = time.time()
 
-    # Load data
-    strain_data = load_gwosc_local(ifo.name, start, end)
-    psd_ts = load_gwosc_local_gwpy(ifo.name, psd_start, psd_end)
+    print(f"\nLoading {ifo_name}...")
+
+
+    strain_data = load_gwosc_local(
+        ifo.name,
+        start,
+        end,
+    )
+
+    psd_ts = load_gwosc_local_gwpy(
+        ifo.name,
+        psd_start,
+        psd_end,
+    )
 
     t_fetch = time.time() - t_det
 
-    # FFT
-    strain_data.set_tukey_window(alpha=tukey_alpha)
+
+    strain_data.set_tukey_window(
+        alpha=tukey_alpha
+    )
+
     strain_data.fft()
+
     ifo.set_data(strain_data)
 
-    # PSD
+
     t_psd0 = time.time()
 
     psd_alpha = 2 * roll_off / PSD_FFT_LENGTH
@@ -398,44 +407,37 @@ for ifo in [get_H1(), get_L1(), get_V1()]:
         psd_gwpy.frequencies.value,
         psd_gwpy.value,
         kind='linear',
-        fill_value=(psd_gwpy.value[0], psd_gwpy.value[-1]),
+        fill_value=(
+            psd_gwpy.value[0],
+            psd_gwpy.value[-1],
+        ),
         bounds_error=False,
     )
 
-    strain_freqs = np.array(strain_data.frequencies)
+    strain_freqs = np.array(
+        strain_data.frequencies
+    )
 
     psd_obj = PowerSpectrum(
-        values=jnp.array(psd_interp_fn(strain_freqs)),
-        frequencies=jnp.array(strain_freqs),
+        values=jnp.array(
+            psd_interp_fn(strain_freqs)
+        ),
+        frequencies=jnp.array(
+            strain_freqs
+        ),
         name=ifo.name,
     )
 
     ifo.set_psd(psd_obj)
+
     t_psd = time.time() - t_psd0
 
-    ifo.set_frequency_bounds(fmin, fmax)
+    ifo.set_frequency_bounds(
+        fmin,
+        fmax,
+    )
 
-    # ========================================================
-    # Check whether this detector is usable
-    # ========================================================
-
-    data = ifo.sliced_fd_data
-    psd = ifo.sliced_psd
-
-    data_finite = bool(jnp.all(jnp.isfinite(data)))
-    psd_finite = bool(jnp.all(jnp.isfinite(psd)))
-    psd_positive = bool(jnp.all(psd > 0))
-
-    print(f"\n===== {ifo.name} =====")
-    print(f"Data finite: {data_finite}")
-    print(f"PSD finite:  {psd_finite}")
-    print(f"PSD > 0:    {psd_positive}")
-
-    if data_finite and psd_finite and psd_positive:
-        detectors.append(ifo)
-        print(f"✓ {ifo.name} INCLUDED")
-    else:
-        print(f"✗ {ifo.name} EXCLUDED")
+    detectors.append(ifo)
 
     print(
         f"{ifo.name}: "
@@ -445,13 +447,10 @@ for ifo in [get_H1(), get_L1(), get_V1()]:
     )
 
 
-# ============================================================
-# Final detector list
-# ============================================================
-
 print("\n===== DETECTORS USED =====")
 print([ifo.name for ifo in detectors])
 print("===========================\n")
+
 N_DET = len(detectors)
 
 
@@ -468,290 +467,49 @@ epoch = duration
 gmst = Time(gps, format="gps").sidereal_time("apparent", "greenwich").rad
 
 
-
-#reads transient results and uses MAP for ref params
-def load_reference_params():
-    run_label = os.path.join(
-        grb_dir,
-        f"{grb_name}_Transient"
-    )
-    csv_path = f"{run_label}.csv"
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(
-            f"Transient results not found for {grb_name}:\n"
-            f"{csv_path}"
-        )
-
-    samples = load_nested_csv(csv_path)
-
-    PARAM_NAMES = [
-        "M_c",
-        "q",
-        "s1_z",
-        "s2_z",
-        "iota",
-        "d_L",
-        "t_c",
-        "psi",
-        "ra",
-        "dec",
-        "lambda_1",
-        "lambda_2",
-    ]
-
-    weights = np.asarray(
-        samples.get_weights(),
-        dtype=float,
-    )
-    weights = weights / weights.sum()
-
-    ref = {}
-
-    for param in PARAM_NAMES:
-        values = samples[param].to_numpy()
-        bins = np.linspace(
-            np.nanmin(values),
-            np.nanmax(values),
-            200,
-        )
-        map_value = map_from_hist(
-            values,
-            weights,
-            bins,
-        )
-        ref[param] = float(map_value)
-    ref["eta"] = float(q_to_eta(ref["q"]))
-
-    ref["phase_c"] = 0.0
-
-    ref["trigger_time"] = float(gps)
-    ref["gmst"] = float(gmst)
-    return ref
-
-
-t_ref0 = time.time()
-
-ref_params = load_reference_params()
-print(f"Reference (transient MAPs): M_c={ref_params['M_c']:.4f}, q={ref_params['q']:.4f}, d_L={ref_params['d_L']:.1f}")
-
-t_ref = time.time() - t_ref0
-print(f"[TIMING] Reference params: {t_ref:.1f}s")
-
-
 # ============================================================================
-# 4. HETERODYNING SETUP (pre-compute stacked arrays)
+# 4. LIKELIHOOD SETUP
 # ============================================================================
+from jimgw.core.single_event.likelihood import TransientLikelihoodFD
 
-N_BINS = args.n_bins
+t_lik0 = time.time()
 
-def max_phase_diff(f, f_low, f_high, chi=1.0):
-    """Maximum accumulated phase across PN orders. Eq.(7) of arXiv:2302.05333."""
-    gamma = np.arange(-5, 6, 1) / 3.0
-    f_2d = np.repeat(f[:, None], len(gamma), axis=1)
-    f_star = np.repeat(f_low, len(gamma))
-    f_star[gamma >= 0] = f_high
-    return 2 * np.pi * chi * np.sum((f_2d / f_star) ** gamma * np.sign(gamma), axis=1)
+likelihood = TransientLikelihoodFD(
+    detectors=detectors,
+    waveform=waveform,
+    trigger_time=gps,
+    f_min=fmin,
+    f_max=fmax,
+    phase_marginalization=True,
+)
 
-def make_binning_scheme(freqs, n_bins, chi=1):
-    phase_diff_array = max_phase_diff(freqs, freqs[0], freqs[-1], chi=chi)
-    bin_f = interp1d(phase_diff_array, freqs)
-    f_bins = np.array([bin_f(i) for i in np.linspace(
-        phase_diff_array[0], phase_diff_array[-1], n_bins + 1)])
-    f_bins_center = (f_bins[:-1] + f_bins[1:]) / 2
-    return jnp.array(f_bins), jnp.array(f_bins_center)
-
-def compute_coefficients(data, h_ref, psd, freqs, f_bins, f_bins_center):
-    """Pre-compute heterodyning coefficients A0, A1, B0, B1 per bin.
-
-    Uses np.searchsorted for O(n_bins * log n_freq) bin assignment instead
-    of O(n_bins * n_freq) boolean masking. The bin boundaries are identical:
-    searchsorted(side='left') gives the first index >= edge, matching the
-    original (freqs >= f_bins[i]) & (freqs < f_bins[i+1]) condition.
-    """
-    df = freqs[1] - freqs[0]
-    freqs_np = np.array(freqs)
-    psd_np = np.array(psd)
-    data_prod = np.array(data * h_ref.conj())
-    self_prod = np.array(h_ref * h_ref.conj())
-
-    # Binary-search bin edges: bin i spans [f_bins[i], f_bins[i+1])
-    edges = np.array(f_bins)
-    bin_start = np.searchsorted(freqs_np, edges[:-1], side='left')
-    bin_end = np.searchsorted(freqs_np, edges[1:], side='left')
-    centers_np = np.array(f_bins_center)
-
-    n_bins = len(f_bins_center)
-    A0 = np.empty(n_bins, dtype=complex)
-    A1 = np.empty(n_bins, dtype=complex)
-    B0 = np.empty(n_bins, dtype=complex)
-    B1 = np.empty(n_bins, dtype=complex)
-    for i in range(n_bins):
-        s = slice(bin_start[i], bin_end[i])
-        d_over_psd = data_prod[s] / psd_np[s]
-        h_over_psd = self_prod[s] / psd_np[s]
-        freq_diff = freqs_np[s] - centers_np[i]
-        A0[i] = 4 * np.sum(d_over_psd) * df
-        A1[i] = 4 * np.sum(d_over_psd * freq_diff) * df
-        B0[i] = 4 * np.sum(h_over_psd) * df
-        B1[i] = 4 * np.sum(h_over_psd * freq_diff) * df
-    return jnp.array(A0), jnp.array(A1), jnp.array(B0), jnp.array(B1)
+t_lik = time.time() - t_lik0
+print(f"[TIMING] Likelihood setup: {t_lik:.1f}s")
 
 
-def setup_heterodyne(ref_params, detectors, waveform, frequencies, epoch, n_bins):
-    """Build heterodyning reference state. Returns stacked arrays (n_det, n_bins).
-
-    All detector-indexed quantities are stacked as (n_det, n_bins) JAX arrays
-    instead of Python dicts, enabling vectorized computation in the likelihood.
-    """
-    params = {k: float(v) for k, v in ref_params.items()}
-    if jnp.isclose(params.get('eta', 0.25), 0.25):
-        params['eta'] = 0.249995
-
-    print(f"Setting up heterodyning with {n_bins} bins...")
-    h_sky = waveform(frequencies, params)
-
-    freq_grid, freq_grid_center = make_binning_scheme(np.array(frequencies), n_bins)
-    freq_grid_low = freq_grid[:-1]
-
-    # Mask to valid waveform support.
-    # Use a SINGLE mask on centers, then derive edges from it to maintain
-    # the invariant: len(edges) = len(centers) + 1, with edge[i] <= center[i] < edge[i+1].
-    h_amp = jnp.sum(jnp.array([jnp.abs(h_sky[k]) for k in h_sky]), axis=0)
-    f_valid = frequencies[jnp.where(h_amp > 0)[0]]
-    f_max_val, f_min_val = jnp.max(f_valid), jnp.min(f_valid)
-
-    mask_center = jnp.where((freq_grid_center <= f_max_val) & (freq_grid_center >= f_min_val))[0]
-    freq_grid_center = freq_grid_center[mask_center]
-    freq_grid_low = freq_grid_low[mask_center]
-
-    # Edges: need len(centers) + 1 edges that bracket the valid centers
-    start_idx = mask_center[0]
-    end_idx = mask_center[-1] + 2     # +1 inclusive, +1 for extra right edge
-    freq_grid = freq_grid[start_idx:end_idx]
-
-    h_sky_low = waveform(freq_grid_low, params)
-    h_sky_center = waveform(freq_grid_center, params)
-
-    # Build per-detector arrays, then stack
-    # Note: fd_response handles time shifts internally (trigger_time - epoch + t_c)
-    A0_list, A1_list, B0_list, B1_list = [], [], [], []
-    ref_low_list, ref_center_list = [], []
-
-    for det in detectors:
-        waveform_ref = det.fd_response(frequencies, h_sky, params)
-        ref_low_list.append(det.fd_response(freq_grid_low, h_sky_low, params))
-        ref_center_list.append(det.fd_response(freq_grid_center, h_sky_center, params))
-
-        A0, A1, B0, B1 = compute_coefficients(
-            det.sliced_fd_data, waveform_ref, det.sliced_psd, frequencies, freq_grid, freq_grid_center)
-        # No further masking needed: compute_coefficients already received the
-        # masked grids, so its output contains only the valid bins.
-        A0_list.append(A0)
-        A1_list.append(A1)
-        B0_list.append(B0)
-        B1_list.append(B1)
-
-    # Stack into (n_det, n_bins) arrays — no dicts in the hot path
-    hetero = {
-        'freq_grid_low': freq_grid_low,
-        'freq_grid_center': freq_grid_center,
-        'A0': jnp.stack(A0_list),            # (n_det, n_bins)
-        'A1': jnp.stack(A1_list),
-        'B0': jnp.stack(B0_list),
-        'B1': jnp.stack(B1_list),
-        'ref_low': jnp.stack(ref_low_list),   # (n_det, n_bins)
-        'ref_center': jnp.stack(ref_center_list),
-    }
-    print(f"Heterodyning setup complete. Bin shape: {hetero['A0'].shape}")
-    return hetero
-
-t_het0 = time.time()
-hetero = setup_heterodyne(ref_params, detectors, waveform, frequencies, epoch, N_BINS)
-t_het = time.time() - t_het0
-print(f"[TIMING] Heterodyning setup: {t_het:.1f}s")
-
-# Extract as module-level constants for closure capture (static in JIT)
-FREQ_LOW = hetero['freq_grid_low']
-FREQ_CENTER = hetero['freq_grid_center']
-A0 = hetero['A0']          # (n_det, n_bins)
-A1 = hetero['A1']
-B0 = hetero['B0']
-B1 = hetero['B1']
-REF_LOW = hetero['ref_low']      # (n_det, n_bins)
-REF_CENTER = hetero['ref_center']
-
-
-# ============================================================================
-# 5. HETERODYNED LIKELIHOOD (phase-marginalized or standard)
-# ============================================================================
-
-@jax.jit
 def loglikelihood_fn(x):
-    """Heterodyned log-likelihood + standard siren terms.
-
-    When phase_marg=True (HeterodynedPhaseMarginalizedLikelihoodFD pattern):
-      ll_gw = -<h|h>/2 + log I_0(|<d|h>|)
-    When phase_marg=False (HeterodynedTransientLikelihoodFD pattern):
-      ll_gw = Re(<d|h> - <h|h>/2)
-
-    The if/else on phase_marg is resolved at trace time (Python bool),
-    producing two distinct compiled functions with no runtime overhead.
-    """
     params = {
-        'M_c': x[I_MC], 'q': x[I_Q], 's1_z': x[I_S1Z], 's2_z': x[I_S2Z],
-        'iota': x[I_IOTA], 'd_L': x[I_DL], 't_c': x[I_TC],
-        'psi': x[I_PSI], 'ra': x[I_RA], 'dec': x[I_DEC],
-        'lambda_1': x[I_L1], 'lambda_2': x[I_L2],
+        'M_c': x[I_MC],
+        'q': x[I_Q],
+        's1_z': x[I_S1Z],
+        's2_z': x[I_S2Z],
+        'iota': x[I_IOTA],
+        'd_L': x[I_DL],
+        't_c': x[I_TC],
+        'psi': x[I_PSI],
+        'ra': x[I_RA],
+        'dec': x[I_DEC],
+        'lambda_1': x[I_L1],
+        'lambda_2': x[I_L2],
         'eta': x[I_Q] / (1 + x[I_Q]) ** 2,
         'phase_c': 0.0 if phase_marg else x[I_PHASEC],
-        'trigger_time': gps,
-        'gmst': gmst,
     }
 
-    # --- Waveform at bin frequencies (jimgw API, traced once) ---
-    h_sky_low = waveform(FREQ_LOW, params)
-    h_sky_center = waveform(FREQ_CENTER, params)
-
-    # --- Detector responses: stack as (n_det, n_bins) ---
-    det_resp_low = jnp.stack([
-        det.fd_response(FREQ_LOW, h_sky_low, params)
-        for det in detectors
-    ])  # (n_det, n_bins)
-    det_resp_center = jnp.stack([
-        det.fd_response(FREQ_CENTER, h_sky_center, params)
-        for det in detectors
-    ])  # (n_det, n_bins)
-
-    # --- Heterodyned computation: vectorized over detectors ---
-    r0 = det_resp_center / REF_CENTER                                    # (n_det, n_bins)
-    r1 = (det_resp_low / REF_LOW - r0) / (FREQ_LOW - FREQ_CENTER)       # (n_det, n_bins)
-
-    # Complex match filter: sum over detectors and bins
-    complex_match = jnp.sum(A0 * r0.conj() + A1 * r1.conj())            # scalar
-
-    # Optimal SNR: sum over detectors and bins
-    optimal_SNR = jnp.sum(
-        B0 * jnp.abs(r0) ** 2 + 2 * B1 * (r0 * r1.conj()).real
-    )                                                                     # scalar
-
-    if phase_marg:
-        # jimgw: HeterodynedPhaseMarginalizedLikelihoodFD
-        ll_gw = -optimal_SNR.real / 2 + log_i0(jnp.absolute(complex_match))
-    else:
-        # jimgw: HeterodynedTransientLikelihoodFD
-        ll_gw = (complex_match - optimal_SNR / 2).real
-
-    # --- Standard siren velocity terms (Abbott et al. 2017, arXiv:1710.05832) ---
-    #commented out for now as velocity data is GW170817 specific
-    #ll_vr = stats.norm.logpdf(3327.0, x[I_VP] + x[I_H0] * x[I_DL], 72.0)
-    #ll_vp = stats.norm.logpdf(310.0, x[I_VP], 150.0)
-
-    #return ll_gw + ll_vr + ll_vp
-    return ll_gw
+    return likelihood.evaluate(params)
 
 
 # ============================================================================
-# 6. NESTED SAMPLING SETUP
+# 5. NESTED SAMPLING SETUP
 # ============================================================================
 
 num_live = args.n_live
@@ -763,9 +521,8 @@ print(f"num_mcmc_steps (slice steps per update): {num_mcmc_steps}  "
 
 
 # ============================================================================
-# 7. PRIOR SAMPLING & INITIALIZATION
+# 6. PRIOR SAMPLING & INITIALIZATION
 # ============================================================================
-
 def sample_from_prior(key, n, prior_type):
     """Draw n samples for all parameters. Returns (n, NUM_DIMS) array.
 
@@ -808,7 +565,7 @@ def sample_from_prior(key, n, prior_type):
 
     return jnp.array(np.concatenate(collected)[:n])
 
-#required so logprior can be called for each run separately
+
 def make_logprior(prior_type):
     return lambda x: logprior_fn(x, prior_type)
 
@@ -826,7 +583,6 @@ rng_key = jax.random.PRNGKey(args.seed)
 logZ_unconditioned = None
 logZ_conditioned = None
 
-#loops for both unconditioned and conditioned, saves samples separately
 for run_name, prior_type in runs:
 
     print("\n" + "=" * 70)
@@ -842,8 +598,6 @@ for run_name, prior_type in runs:
         y = x + t * d
         y = y.at[I_PSI].set(jnp.mod(y[I_PSI], jnp.pi))
         y = y.at[I_RA].set(jnp.mod(y[I_RA], 2 * jnp.pi))
-        if not phase_marg:
-            y = y.at[I_PHASEC].set(jnp.mod(y[I_PHASEC], 2 * jnp.pi))
         return y, True
 
 
@@ -860,13 +614,14 @@ for run_name, prior_type in runs:
     rng_key, init_key = jax.random.split(rng_key)
     initial_particles = sample_from_prior(init_key, num_live, prior_type)
 
+
     state = nested_sampler.init(initial_particles)
     t_init = time.time() - t_init0
     print(f"[TIMING] Prior sampling + init: {t_init:.1f}s")
 
 
     # ============================================================================
-    # 8. RUN NESTED SAMPLING
+    # 7. RUN NESTED SAMPLING
     # ============================================================================
 
     @jax.jit
@@ -876,8 +631,7 @@ for run_name, prior_type in runs:
         state, dead_point = nested_sampler.step(subk, state)
         return (state, k), dead_point
 
-    phase_msg = "phase_c marginalized" if phase_marg else "phase_c sampled"
-    print(f"Running nested sampling: {num_live} live, {NUM_DIMS}D ({phase_msg})")
+    print(f"Running nested sampling: {num_live} live, {NUM_DIMS}D")
     print("JIT-compiling first step...")
     t_jit0 = time.time()
     (state, rng_key), dead_first = one_step((state, rng_key), None)
@@ -887,18 +641,37 @@ for run_name, prior_type in runs:
 
     ns_start = time.time()
     dead = [dead_first]
+    dead_points = num_delete
+    next_report = 500
 
     with tqdm.tqdm(desc="Dead points", initial=num_delete, unit=" dead points") as pbar:
         while not state.integrator.logZ_live - state.integrator.logZ < -3:
             (state, rng_key), dead_info = one_step((state, rng_key), None)
             dead.append(dead_info)
+            dead_points += num_delete
             pbar.update(num_delete)
+
+            if dead_points >= next_report:
+
+                logZ = float(state.integrator.logZ)
+                logZ_live = float(state.integrator.logZ_live)
+                logZ_diff = logZ_live - logZ
+
+                print(
+                    f"\nDead points: {dead_points} | "
+                    f"logZ = {logZ:.3f} | "
+                    f"logZ_live = {logZ_live:.3f} | "
+                    f"logZ_live - logZ = {logZ_diff:.3f}",
+                    flush=True
+                )
+
+                next_report += 500
 
     ns_time = time.time() - ns_start
 
 
     # ============================================================================
-    # 9. POST-PROCESSING & OUTPUT
+    # 8. POST-PROCESSING & OUTPUT
     # ============================================================================
 
     # Combine dead + live points via blackjax utility.
@@ -914,6 +687,10 @@ for run_name, prior_type in runs:
         columns=PARAM_NAMES,
         labels=PARAM_LABELS,
     )
+
+    run_label = os.path.join(grb_dir,
+            f"{grb_name}_{run_name}_Transient"
+        )
 
     logzs = samples.logZ(100)
 
@@ -933,11 +710,6 @@ for run_name, prior_type in runs:
         logZ_conditioned = logZ_mean
         logZ_conditioned_err = logZ_std
 
-    run_label = os.path.join(
-        grb_dir,
-        f"{run_name}_Heterodyned"
-    )
-
     samples.to_csv(f"{run_label}.csv")
 
     print(f"Saved to {run_label}.csv")
@@ -948,8 +720,7 @@ print(f"\n{'='*50}")
 print(f"TIMING SUMMARY")
 print(f"{'='*50}")
 print(f"  Data loading:     {t_data:7.1f}s")
-print(f"  Reference params: {t_ref:7.1f}s")
-print(f"  Heterodyne setup: {t_het:7.1f}s")
+print(f"  Likelihood setup: {t_lik:7.1f}s")
 print(f"  Init + prior:     {t_init:7.1f}s")
 print(f"  JIT compilation:  {t_jit:7.1f}s")
 print(f"  Sampling:         {ns_time:7.1f}s")

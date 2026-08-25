@@ -1,1 +1,5 @@
 **/SFM_baseline_GW170817_GRB_extended/data
+*/SFM_baseline_GW170817_GRB_extended/pipeline/transient.slurm
+*/SFM_baseline_GW170817_GRB_extended/pipeline/standard.slurm
+*.err
+*.out
