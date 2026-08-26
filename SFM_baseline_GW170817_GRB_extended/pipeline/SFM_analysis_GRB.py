@@ -19,7 +19,7 @@ from _plot_utils import (
 DATA_DIR = "../data"
 
 #SELECTED_GRBS = []  #empty list to process ALL GRB directories
-SELECTED_GRBS = ["GRB170121133", "GRB170817529"]
+SELECTED_GRBS = ["GRB190810675", "GRB240603102"]
 
 #optional settings
 strain_plotting = True

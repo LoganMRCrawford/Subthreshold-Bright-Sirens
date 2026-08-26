@@ -502,7 +502,7 @@ def loglikelihood_fn(x):
         'lambda_1': x[I_L1],
         'lambda_2': x[I_L2],
         'eta': x[I_Q] / (1 + x[I_Q]) ** 2,
-        'phase_c': 0.0 if phase_marg else x[I_PHASEC],
+        'phase_c': 0.0,
     }
 
     return likelihood.evaluate(params)
