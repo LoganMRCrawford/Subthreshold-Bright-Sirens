@@ -18,6 +18,9 @@ The venture to seek bright siren events that have slipped under the radar of gra
 
 
 # SFM_baseline_GW170817_GRB_extended
+Summer project work by Sienna Folkes-Miller...
+The following folder provides the workflow to target potential subthreshold sirens guided by GRB detections. The pipeline selects suitable GRBs from the Fermi GBM Burst Catalogue (https://heasarc.gsfc.nasa.gov/W3Browse/fermi/fermigbrst.html) and downloads available strain data from LIGO Hanford, LIGO Livingston and Virgo around the GRB GPS time. A simple Welch estimate is used to estimate the PSD. An unconditioned prior (full sky) and conditioned prior (gaussian on GRB location) are applied and nested sampling is run for each prior using the IMRPhenomD_NRTidalv2 binary neutron star waveform. The primary quantity of interest is the ratio of evidences between the two runs, with a significant $\Delta \log Z$ implying a preference towards the higher evidence model. The pipeline has been validated on GRB170817529 which is associated with the confirmed bright siren GW170817. Preliminary runs have been performed on a further 83 suitable GRBs. Most runs have no model preference implying the strain data contains only noise, although there are a few promising results!
+## FOLDERS:
 - data
     - grb_catalogue.csv saves here: contains list of GRBs with GPS, RA, DEC, T90 and LIGO run info
     - grb_results.csv saves here: contains list of GRB results including valid detectors, unconditioned, conditioned and  $\Delta \log Z$ with errors and MAPs across all parameters for both unconditioned and conditioned runs
@@ -26,10 +29,10 @@ The venture to seek bright siren events that have slipped under the radar of gra
     - deprecated folder: contains older files which may be relevant if moving onto heterodyned likelihood in the future
     - _plot_utils.py: contains useful functions for plotting corner plots or finding the MAP of a posterior
     - SFM_data_collection_GRB.py:
-        - If catalogue_read = True at start of file, it queries the Fermi GBM Burst Catalogue (https://heasarc.gsfc.nasa.gov/W3Browse/fermi/fermigbrst.html) and saves the list of suitable GRBs to grb_catalogue.csv. The conditions for 'suitable' can be changed, and currently requires trigger times to be within LIGO observing windows, T90<3s and error radius <10 degrees.
+        - If catalogue_read = True at start of file, it queries the Fermi GBM Burst Catalogue and saves the list of suitable GRBs to grb_catalogue.csv. The conditions for 'suitable' can be changed, and currently requires trigger times to be within LIGO observing windows, T90<3s and error radius <10 degrees.
         - GRBs in the list SELECTED_GRBs = ["GRB012345678"] will have their strain data downloaded from LIGO Hanford, LIGO Livingston and Virgo detectors. Leaving the list empty will loop over all GRBs in the grb_catalogue.csv, and specified GRBs must exist in the downloaded catalogue. Data is saved to the GRB specific output folder, and is only saved if the full segment selected exists and there are no Nans, hence not all GRBs will have three strain files.
     - SFM_sampling_GRB.py: 
-        - Must be run with parser argument --grb-names GRB012345678.
+        - Must be run with parser argument --grb-names GRB012345678 and is intended for GPU use.
         - Performs unconditioned (full sky prior) and conditioned (GRB location gaussian prior) nested sampling on a single GRB location and saves both sets of samples to the GRB specific output folder. Gaussian stds are chosen to be 0.2rad in RA and 0.1rad in Dec, but can be altered.
         - Sampling uses TransientLikelihoodFD (full parameter space), phase marginalization, IMRPhenomD_NRTidalv2 waveform and a Welch estimate for the psd.
         - Priors are set reasonably wide to encompass most physical parameters whilst keeping run time suitable. Most importantly, coalescent time has a prior between [-10,0] as the time delay between GW and GRB events is not well constrained.
@@ -45,6 +48,11 @@ The venture to seek bright siren events that have slipped under the radar of gra
         - Uses same format as SFM_data_collection_GRB.py with SELECTED_GRBs = ["GRB012345678"] and looping over all GRBs in results file if list is empty.
         - Prints table of unconditioned, conditioned and delta logZ with errors for all GRBs, ordering from highest to lowest delta logZ.
         - For specified GRBs, plots MAPs and medians with 16-84 percentile error bars for each parameter for both unconditioned and conditioned samples. Saves to grb specific output folder.
+- SFM_archive
+    - 7 folders containing unconditioned and conditioned samples, corner plots, strain data etc for the GRBs that were identified as having significant results (sufficient positive or negative $\Delta \log Zs$)
+    - grb_catalogue.csv for work done by SFM
+    - grb_results.csv for work done by SFM
+## COMMENTARY
 - workflow:
     - Run SFM_data_collection_GRB.py with catalogue_read = True to build grb_catalogue.csv
     - Run SFM_data_collection_GRB.py with SELECTED_GRBs = [] to download data over all GRBs in grb_catalogue.csv (~minutes per GRB so may be worth doing in smaller sections)
