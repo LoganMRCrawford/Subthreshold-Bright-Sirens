@@ -45,3 +45,10 @@ The venture to seek bright siren events that have slipped under the radar of gra
         - Uses same format as SFM_data_collection_GRB.py with SELECTED_GRBs = ["GRB250119945"] and looping over all GRBs in results file if list is empty.
         - Prints table of unconditioned, conditioned and delta logZ with errors for all GRBs, ordering from highest to lowest delta logZ.
         - For specified GRBs, plots MAPs and medians with 16-84 percentile error bars for each parameter for both unconditioned and conditioned samples. Saves to grb specific output folder.
+- workflow:
+    - Run SFM_data_collection_GRB.py with catalogue_read = True to build grb_catalogue.csv
+    - Run SFM_data_collection_GRB.py with SELECTED_GRBs = [] to download data over all GRBs in grb_catalogue.csv (~minutes per GRB so may be worth doing in smaller sections)
+    - Run SFM_sampling_GRB.py --grb-names GRB012345678 for each GRB you are interested in, each NS run takes ~30mins for pure noise data but can increase up to 2.5hrs for more interesting signals and remember each run requires two NS runs
+    - **NOTE** TransientLikelihoodFD may require a100-80s instead of standard a100-40 depending on the settings...
+    - Run SFM_analysis_GRB.py with SELECTED_GRBs = [] and logZ_and_maps = True to build grb_results.csv. Optionally use strain_plotting = True and corner_plotting = True to generate extra plots.
+    - Run SFM_results_GRB.py to print table of logZs in order of decreasing delta logZ to investigate results. Set SELECTED_GRBs = [] to include your interesting GRBs to plot the changes in the MAPs and medians across unconditioned and conditioned runs for all parameters.
