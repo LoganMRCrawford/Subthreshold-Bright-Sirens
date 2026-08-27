@@ -19,7 +19,8 @@ from _plot_utils import (
 DATA_DIR = "../data"
 
 #SELECTED_GRBS = []  #empty list to process ALL GRB directories
-SELECTED_GRBS = ["GRB190810675", "GRB240603102"]
+SELECTED_GRBS = ["GRB170817529", "GRB240824549", "GRB170403583", "GRB190810675", "GRB190810675", "GRB240603102", "GRB240715239", "GRB190728271"]
+
 
 #optional settings
 strain_plotting = True
@@ -127,6 +128,79 @@ if strain_plotting == True:
             bbox_inches="tight"
         )
         plt.show()
+
+
+        #frequency-time histogram in amplitude
+        fig, axes = plt.subplots(
+            len(strains), 1,
+            figsize=(12, 4 * len(strains)),
+            sharex=True
+        )
+        if len(strains) == 1:
+            axes = [axes]
+        for ax, strain, label in zip(axes, strains, labels):
+            #whitening and calculating amplitude
+            whitened = strain.whiten(
+                fftlength=4,
+                overlap=2
+            )
+            spec = whitened.spectrogram(
+                fftlength=0.1,
+                stride=0.1
+            )
+            spec = spec.crop(
+                gps - 20,
+                gps + 3
+            )
+            power = np.abs(spec.value)
+            power /= np.median(power)
+
+            #histogram
+            im = ax.pcolormesh(
+                spec.times.value - gps,
+                spec.frequencies.value,
+                power.T,
+                shading="auto"
+            )
+
+            #aesthetics
+            ax.set_yscale("log")
+            ax.set_ylim(30, 500)
+            ax.set_ylabel("Frequency (Hz)")
+            ax.grid(False)
+            ax.text(
+                0.02, 0.95,
+                label,
+                transform=ax.transAxes,
+                fontsize=14,
+                verticalalignment="top",
+                color='white',
+            )
+            cbar = fig.colorbar(
+                im,
+                ax=ax,
+                orientation="horizontal",
+                pad=0.08
+            )
+            cbar.set_label("Normalized amplitude")
+        axes[-1].set_xlabel(
+            "Time relative to GRB trigger [s]",
+            fontsize=18
+        )
+        plt.tight_layout()
+
+        #saving figure
+        plt.savefig(
+            os.path.join(
+                dir_path,
+                f"{GRB_name}_time_frequency.png"
+            ),
+            dpi=600,
+            bbox_inches="tight"
+        )
+        plt.show()
+        plt.close()
+
 
 
 #################
