@@ -3,3 +3,4 @@
 */SFM_baseline_GW170817_GRB_extended/pipeline/standard.slurm
 *.err
 *.out
+**.venv/

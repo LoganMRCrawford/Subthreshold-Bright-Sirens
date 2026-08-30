@@ -25,5 +25,5 @@ if (( $# == 0 )); then
     exit 2
 fi
 
-exec "$HOME/spackming311/bin/python" -u "$@"
+exec "$HOME/Subthreshold-Bright-Sirens/.venv/bin/python" -u "$@"
 

@@ -19,12 +19,12 @@ from _plot_utils import (
 DATA_DIR = "../data"
 
 #SELECTED_GRBS = []  #empty list to process ALL GRB directories
-SELECTED_GRBS = ["GRB190810675", "GRB240603102"]
+SELECTED_GRBS = ["GRB170816599"]
 
 #optional settings
 strain_plotting = True
-logZ_and_maps = True
-corner_plotting = True
+logZ_and_maps = False
+corner_plotting = False
 
 
 if len(SELECTED_GRBS) == 0:
