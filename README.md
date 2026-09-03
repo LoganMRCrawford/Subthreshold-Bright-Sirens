@@ -75,3 +75,41 @@ The following folder provides the workflow to target potential subthreshold sire
     - Another pipeline was built using TransientLikelihoodFD to find reference parameters to feed to unconditioned vs conditioned heterodyned likelihood NS runs. This worked for GRB170817529 but gave extremely high evidences and significant $\Delta \log Z$ for other GRBs so was abandoned. Heterodyned likelihood is much faster than transient likelihood so can be run with more live points, hence the benefit to potentially developing this again in the future.
     - Once confirming a set of potential subthreshold sirens, nested sampling should be rerun including H0 and vp as parameters as can be seen in the old_heterodyned_GRB.py file specifically for GW170817. This requires identifying the host galaxy from the location and redshift of the GRB.
     - Given subthreshold sirens will likely have broad H0 posteriors due to their poor SNRs, a potential idea is to combine their H0 posteriors as done in the dark siren method.
+
+# Improved noise modelling
+
+The original pipeline estimates the detector noise power spectral density (PSD) with a median Welch estimate computed from an off-source segment. This is a useful baseline, but it treats the PSD as fixed after estimation and can be sensitive to non-stationarity, narrow spectral features, and transient contamination in the noise-estimation data. For marginal candidate signals, these assumptions can affect both the likelihood and the evidence difference between the unconditioned and GRB-conditioned analyses.
+
+The improved-noise work keeps the same $128\,\mathrm{s}$ likelihood segment, frequency band ($23$--$2048\,\mathrm{Hz}$), detector data, waveform, and prior comparison. It changes the PSD supplied to the likelihood. This makes the Welch and BayesLine results comparable as alternative noise models, rather than as different signal analyses.
+
+## Using BayesLine
+
+BayesLine is the currently adopted improved-noise pipeline. BayesWave/BayesLine is run on a $1024\,\mathrm{s}$ off-source PSD context, ending $16\,\mathrm{s}$ before the start of the $128\,\mathrm{s}$ likelihood segment. It models the broad-band PSD and spectral lines, then supplies the posterior-median PSD for each available detector.
+
+The sampling workflow is implemented in `LC_noise_improved/LC_SFM_sampling_GRB.py`. It loads the raw BayesWavePost files named `glitch_median_PSD_<IFO>.dat` from each event's `run/trigtime_*/post/clean/` directory and converts them onto the likelihood frequency grid using
+
+$$
+S_n(f) = P(f) \frac{2}{128}.
+$$
+
+The physical PSD products named `bayesline_median_psd_physical_<IFO>.dat` already include this conversion and must not be supplied to this loader, because that would apply the normalisation twice. The sampler also writes a BayesLine-versus-Welch PSD diagnostic plot for each detector alongside the posterior CSV files.
+
+The completed bulk runs use the two uploaded archives, `GRB_bayesline_psd_runs_31082026` and `GRB_bayesline_psd_runs_01092026`. The latter uses a trailing underscore in each archive directory name only to distinguish it from the first upload; the Slurm workflow strips that underscore before looking up the catalogue entry, metadata, local strain files, and result directory. The corresponding submit scripts are `LC_noise_improved/submit_bulk_bayesline_psd.slurm` and `LC_noise_improved/submit_bulk_bayesline_psd_01092026.slurm`.
+
+BayesLine evidence results should be retained separately from the Welch baseline in `grb_results.csv`. The two noise models can then be compared event by event through $\Delta\log Z = \log Z_{\mathrm{conditioned}} - \log Z_{\mathrm{unconditioned}}$, including each run's nested-sampling uncertainty. Large PSD-model shifts identify events that need diagnostic inspection; they are not, by themselves, evidence for an astrophysical signal.
+
+## Future noise modelling
+
+### ALCS
+
+An adaptive local covariance or locally adaptive covariance-spectrum (ALCS) model is a useful next candidate for PSD estimation. Its value would be to relax the assumption that one stationary PSD describes the whole off-source interval, while retaining a representation that can be evaluated efficiently in the frequency-domain likelihood. A first implementation should be benchmarked against both Welch and BayesLine on the same fixed segments, frequency range, detector set, priors, and sampler settings. Validation should include PSD plots, recovered injections, evidence repeatability, and the behaviour of $\Delta\log Z$ on control events.
+
+### Simultaneous signal and glitch modelling
+
+The longer-term approach is to infer the astrophysical signal, detector noise, and transient glitch content jointly, rather than estimating a PSD in a separate preprocessing stage. BayesWave-style coherent signal and incoherent glitch components provide one route to this: a candidate GRB-associated waveform can be evaluated alongside detector-specific glitch wavelets and a flexible noise model. This would propagate noise and glitch uncertainty into the signal evidence, which is particularly important for low-SNR subthreshold candidates.
+
+This joint model is more computationally demanding and introduces additional model-selection and prior choices. It should therefore begin with controlled injections and known events such as GRB170817529, followed by selected high-leverage candidates from the Welch--BayesLine comparison, before any catalogue-wide production run.
+
+### JAXLine and JAXWave
+
+JAXLine is an in-development JAX/BlackJAX-native reconstruction of the BayesLine noise model, using reversible-jump spline and spectral-line updates to infer a flexible PSD. Its immediate purpose is to provide an accelerator-friendly, independently testable PSD component with careful BayesLine conformance checks. This is the lead-in to JAXWave: a future joint JAX-native model that combines the PSD with detector-specific glitch wavelets and the astrophysical signal likelihood, so that noise and glitch uncertainty can be propagated into the evidence calculation.

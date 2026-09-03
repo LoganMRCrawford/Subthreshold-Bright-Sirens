@@ -22,8 +22,8 @@ ifos = [get_H1(), get_L1(), get_V1()]
 ##INITIAL SETTINGS##
 ####################
 
-#SELECTED_GRBS = []  #leave empty to process all candidate GRBs
-SELECTED_GRBS = ["GRB170816599"]
+SELECTED_GRBS = []  #leave empty to process all candidate GRBs
+# SELECTED_GRBS = ["GRB170816599"]
 catalogue_read = True   #make false to use current catalogue
 
 
