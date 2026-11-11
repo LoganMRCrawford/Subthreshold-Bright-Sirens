@@ -3,7 +3,140 @@
 # Subthreshold-Bright-Sirens
 The venture to seek bright siren events that have slipped under the radar of gravitational wave inferometers. So called "shadow sirens" are attempted to be uncovered via the use of GRB catalogues to pinpoint them on the sky, and improved noise modelling to increase our confidence that an event occurred.
 
-# Getting Started...
+## One maintained pipeline
+
+**Start at [pipeline/README.md](pipeline/README.md).** All new work uses
+[pipeline/run.py](pipeline/run.py): [GRB sky probability distributions](#grb-sky-probability-distributions), reviewed
+strain input, BayesWave PSD estimates, paired whole-sky/GRB-map inference,
+frozen bundles, checkpoints and readable status/evidence summaries.
+
+The three previous workflows are **local-only historical archives**:
+[SFM baseline](archive/README.md#sfm-baseline),
+[LC noise studies](archive/README.md#lc-noise-studies) and
+[LC released-map development](archive/README.md#lc-released-map-development).
+See [archive policy](archive/README.md) for attribution and original results.
+Their contents are retained locally and excluded from new Git commits at
+both root and archive locations. For the current legacy checkpoint continuations,
+their original root paths are temporarily restored and the archive entries
+are links to them. Do not move those paths while jobs are queued or running.
+The preview-first [layout utility](archive/layout.py) handles restoration and
+re-archival; do not rewrite checkpoint identities. New work continues in
+[pipeline/README.md](pipeline/README.md), independently of the legacy layout.
+
+From the repository root, in a **new Python 3.11 environment**:
+
+```bash
+python3.11 -m venv .venv-pipeline
+source .venv-pipeline/bin/activate
+python -m pip install -r pipeline/requirements-search.txt
+python -m pip install --no-deps "blackjax @ git+https://github.com/handley-lab/blackjax.git@2180e29ffb645b2c46b76c768229c7c24212446c"
+python pipeline/run.py doctor
+python pipeline/run.py --help
+```
+
+For CPU acquisition/tests only, use the pipeline host requirements instead.
+The separate NSS-fork install is required because its version metadata
+conflicts with JimGW's published BlackJAX constraint; the pipeline guide explains
+the intentional override and expected `pip check` warning.
+[The BayesWave guide](pipeline/docs/BAYESWAVE.md) covers
+installation in a **separate** Conda/LAL environment, exact-input preparation,
+fitting/postprocessing and the raw-versus-physical PSD normalization contract.
+Do not install into an environment used by active/resumable jobs.
+
+The science engine is unchanged: strict BNS-prior revision, finite-segment
+validation and candidate convergence remain separate scientific work.
+[The recorded smoke test](pipeline/docs/SMOKE_TEST.md) passed execution/input
+checks at short settings; this is not convergence or detection validation.
+See [pipeline/docs/REPOSITORY_REVIEW.md](pipeline/docs/REPOSITORY_REVIEW.md)
+for the latest consistency review and practical onboarding/readability risks.
+The [publication checklist](pipeline/docs/PUBLICATION.md) distinguishes the
+curated source set from local records and existing Git history. Licence and
+history decisions remain pending; preparation is not a commit or push.
+
+### Obtain the GW170817 calibration strain
+
+A fresh checkout does not need the local historical archives to obtain the
+reviewed calibration data:
+
+```bash
+python pipeline/run.py data gw170817 \
+    --output pipeline/work/strain/GRB170817529
+```
+
+This explicitly selects the pinned GW170817 v2 cleaned H1/L1/V1 release,
+checks full-file and extracted-sample hashes and prepares a **new** cache.
+It does not replace existing campaign inputs or submit searches. See
+[pipeline/docs/GW170817.md](pipeline/docs/GW170817.md) for release provenance,
+offline use and the distinction between input reproduction and scientific
+calibration.
+
+## GRB sky probability distributions
+
+**The maintained search uses released Fermi GBM HEALPix sky-probability
+maps, not Gaussian error circles or localisation-contour images.** A map
+assigns probability to sky pixels and can retain irregular or multiple
+localisation regions. It is used **once as the sequential sky prior** in
+the GRB-map GW run, compared with an otherwise matched whole-sky run. It is
+not multiplied into the likelihood again as independent GRB evidence.
+The resulting evidence comparison is conditional on the GRB information,
+not a calibrated detection or association probability.
+
+### Acquire the released maps
+
+After installing the pipeline environment above, run from the repository
+root with a **fresh output directory**:
+
+```bash
+python pipeline/run.py sky acquire \
+    --catalogue pipeline/examples/events.csv \
+    --events GRB170817529 GRB190728271 GRB240715239 \
+    --output pipeline/work/sky
+```
+
+This is a CPU acquisition/validation command: it downloads and packages
+maps but **does not submit GW searches or run BayesWave**.
+
+- **Routine GBM events:** discover the latest released differential HEALPix
+    probability product in the NASA/HEASARC mission archive's current directory.
+- **GW170817 / GRB170817529:** include the pinned
+    [GBM targeted-search systematic localisation](https://gammaray.nsstc.nasa.gov/gbm/science/grbs/grb170817a.html)
+    as the calibration anchor in every acquisition collection. This targeted
+    product is distinct from routine mission localisations; equal systematic
+    calibration is not assumed.
+- **Validation:** check the event/trigger binding, probability values and
+    normalisation, HEALPix ordering and coordinate frame. Do not turn contour
+    images or significance scores into probability densities, clip invalid
+    probabilities, or silently fall back to an older map if the latest fails.
+- **Saved products:** retain the original FITS map and its URL/checksum,
+    a prepared NPZ probability package, and JSON provenance per event. The
+    collection's JSON/CSV index records usable maps and explicit `BLOCKED`
+    reasons. An incomplete collection returns exit code 2, not a claim that
+    every event has a usable distribution.
+
+Use each event's prepared probability package for the `sky` field in
+[pipeline/examples/search.json](pipeline/examples/search.json), keeping its
+original FITS and JSON provenance alongside it. The GW prior uses the map's
+pixel probabilities, not a Gaussian fitted to the map or a density estimated
+from its illustrative sky samples. The separate uniform merger-to-GRB delay
+of 0–10 seconds remains an assumption, not a measured timing distribution.
+
+The [example catalogue](pipeline/examples/events.csv) contains **three events**,
+not a completed 50-GRB sample. To expand it, supply a reviewed CSV with
+`GRB,GPS,LIGO_run` columns and explicitly select `--all` instead of `--events`;
+missing or invalid released maps remain blocked. See
+[pipeline/README.md](pipeline/README.md#2-acquire-real-released-sky-distributions)
+for pinned-source/local-cache overrides, offline acquisition and the full
+workflow, and [pipeline/lc_pipeline/sky.py](pipeline/lc_pipeline/sky.py) for
+the acquisition and validation implementation.
+
+## Archived documentation
+
+[The former root README](archive/README.before-consolidation.md) is preserved, including all SFM entries and earlier LC noise notes.
+
+<details>
+<summary>SFM baseline and older LC notes — archived, not current instructions</summary>
+
+# Historical Getting Started
 ## We use Python 3.11.9 . If using Tursa you can find out how to use 'spack' and add it to your .bashrc startup file. Then you can bash 'spack load python@3.11.9'
 1. Create a python virtual environment (via spack/conda/pyenv etc.)
 2. !important! pip install a cuda activated jax version i.e. 'pip install "jax[cuda12]"==0.10.2 '
@@ -78,6 +211,10 @@ The following folder provides the workflow to target potential subthreshold sire
 
 # Improved noise modelling
 
+> Historical LC Gaussian-prior noise-work notes, retained for provenance.
+> For the maintained released-map workflow and complete BayesWave instructions,
+> see [the unified pipeline guide](pipeline/README.md).
+
 The original pipeline estimates the detector noise power spectral density (PSD) with a median Welch estimate computed from an off-source segment. This is a useful baseline, but it treats the PSD as fixed after estimation and can be sensitive to non-stationarity, narrow spectral features, and transient contamination in the noise-estimation data. For marginal candidate signals, these assumptions can affect both the likelihood and the evidence difference between the unconditioned and GRB-conditioned analyses.
 
 The improved-noise work keeps the same $128\,\mathrm{s}$ likelihood segment, frequency band ($23$--$2048\,\mathrm{Hz}$), detector data, waveform, and prior comparison. It changes the PSD supplied to the likelihood. This makes the Welch and BayesLine results comparable as alternative noise models, rather than as different signal analyses.
@@ -113,3 +250,5 @@ This joint model is more computationally demanding and introduces additional mod
 ### JAXLine and JAXWave
 
 JAXLine is an in-development JAX/BlackJAX-native reconstruction of the BayesLine noise model, using reversible-jump spline and spectral-line updates to infer a flexible PSD. Its immediate purpose is to provide an accelerator-friendly, independently testable PSD component with careful BayesLine conformance checks. This is the lead-in to JAXWave: a future joint JAX-native model that combines the PSD with detector-specific glitch wavelets and the astrophysical signal likelihood, so that noise and glitch uncertainty can be propagated into the evidence calculation.
+
+</details>

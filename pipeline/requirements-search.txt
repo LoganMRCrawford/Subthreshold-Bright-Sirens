@@ -1,0 +1,11 @@
+# STAGE 1: install into a NEW Python 3.11 environment, never an active-job env.
+# JimGW metadata requires blackjax>=1.6. The NSS fork reports 0.1.0..., so
+# putting that fork here creates an unsatisfiable resolver constraint.
+# STAGE 2 (required): see README -- install the exact NSS fork with --no-deps:
+# blackjax @ git+https://github.com/handley-lab/blackjax.git@2180e29ffb645b2c46b76c768229c7c24212446c
+-r requirements-host.txt
+jax[cuda12]==0.10.2
+jax-healpy==0.8.2
+JimGW==0.5.0
+rippleGW==0.3.1
+anesthetic==2.15.1

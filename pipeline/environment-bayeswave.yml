@@ -1,0 +1,15 @@
+# Separate CPU BayesWave / LAL-frame environment. Do not mix with JAX/CUDA env.
+name: subthreshold-bayeswave
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - bayeswave=1.1.3
+  - lalsuite
+  - gwpy
+  - numpy
+  - scipy
+  - h5py
+  - astropy
+  - astropy-healpix
+  - requests

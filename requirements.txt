@@ -4,6 +4,7 @@ anesthetic==2.15.1
 annotated-doc==0.0.5
 annotated-types==0.8.0
 astropy==8.0.1
+astropy-healpix==2.0.1
 astropy-iers-data==0.2026.8.10.0.32.39
 astroquery==0.4.11
 backports.tarfile==1.2.0

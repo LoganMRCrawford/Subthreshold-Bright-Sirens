@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "model": "current_fixed",
+  "sampling": {
+    "n_live": 500,
+    "n_mcmc": 192,
+    "num_delete": 150,
+    "checkpoint_every": 1
+  },
+  "slurm": {
+    "account": "dp429",
+    "partition": "gpu-a100-80",
+    "qos": "standard",
+    "cpus": 8,
+    "hours": 12,
+    "max_concurrent": 2
+  },
+  "events": [
+    {
+      "event": "GRB170817529",
+      "data": "../work/strain/GRB170817529",
+      "sky": "../work/sky/GRB170817529/grb_probability_inputs.npz",
+      "psd_source": "bayesline",
+      "psd": "../work/psd/GRB170817529",
+      "pairs": [{"whole_seed": 172000, "map_seed": 172001}]
+    },
+    {
+      "event": "GRB190728271",
+      "data": "../work/strain/GRB190728271",
+      "sky": "../work/sky/GRB190728271/grb_probability_inputs.npz",
+      "psd_source": "bayesline",
+      "psd": "../work/psd/GRB190728271",
+      "pairs": [{"whole_seed": 172002, "map_seed": 172003}]
+    },
+    {
+      "event": "GRB240715239",
+      "data": "../work/strain/GRB240715239",
+      "sky": "../work/sky/GRB240715239/grb_probability_inputs.npz",
+      "psd_source": "bayesline",
+      "psd": "../work/psd/GRB240715239",
+      "pairs": [{"whole_seed": 172004, "map_seed": 172005}]
+    }
+  ]
+}

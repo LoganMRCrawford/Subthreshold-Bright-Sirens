@@ -3,4 +3,36 @@
 */SFM_baseline_GW170817_GRB_extended/pipeline/standard.slurm
 *.err
 *.out
-**.venv/
+**/.venv/
+.venv-lc/
+.venv-pipeline/
+__pycache__/
+*.py[cod]
+
+# Historical trees are local-only, including during exact legacy resumes.
+# No trailing slash on archive entries: exclude reference symlinks as well
+# as physical directories. Existing tracked files must be untracked separately.
+/LC_grb_informed_pipeline/
+/LC_noise_improved/
+/SFM_baseline_GW170817_GRB_extended/
+/archive/LC_grb_informed_pipeline
+/archive/LC_noise_improved
+/archive/SFM_baseline_GW170817_GRB_extended
+
+# Machine-local migration receipts and full forensic inventories are not
+# portable release inputs. Preserve these files locally, never sanitize them
+# in place or sweep them into a broad add.
+/archive/layout_operations/
+/archive/inventory.json
+/archive/inventory.before-physical-relocation.json
+
+# Generated LC products remain on disk, not in new source-code additions.
+/LC_grb_informed_pipeline/work/
+/LC_grb_informed_pipeline/results*/
+/LC_noise_improved/results*/
+/pipeline/work/
+
+# Physically archived data/results remain on disk, not new source additions.
+/archive/LC_grb_informed_pipeline/work/
+/archive/LC_grb_informed_pipeline/results*/
+/archive/LC_noise_improved/results*/

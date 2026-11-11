@@ -1,0 +1,11 @@
+# LC acquisition, orchestration, diagnostics and offline tests (no CUDA needed).
+numpy==2.4.6
+scipy==1.17.1
+pandas==3.0.5
+astropy==8.0.1
+astropy-healpix==2.0.1
+gwpy==4.0.1
+h5py==3.16.0
+requests==2.34.2
+matplotlib==3.11.1
+corner==2.3.0

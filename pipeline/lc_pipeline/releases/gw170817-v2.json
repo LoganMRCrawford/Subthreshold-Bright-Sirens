@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "event": "GRB170817529",
+  "gw_event": "GW170817",
+  "release": "O1_O2-Preliminary/GW170817/v2; LOSC_CLN_4_V1",
+  "api_url": "https://gwosc.org/eventapi/json/O1_O2-Preliminary/GW170817/v2/",
+  "documentation_url": "https://gwosc.org/events/GW170817/",
+  "review": {
+    "date": "2026-11-01",
+    "scope": "All 4784128 cached samples in each detector matched this public release exactly. This pins release identity, not independent validation of glitch subtraction or high-frequency conditioning.",
+    "original_audit_sha256": "65d8960873e43bcc2f919405f0083d13da7d08928563542916f058f59ddb9886"
+  },
+  "sample_rate_hz": 4096,
+  "release_start_gps": 1187007040,
+  "release_duration_s": 2048,
+  "gamma_trigger_gps": 1187008884.474624,
+  "cache_start_gps": 1187007716.4746094,
+  "cache_samples": 4784128,
+  "sample_hash_convention": "contiguous little-endian float64 bytes",
+  "detectors": {
+    "H1": {
+      "filename": "H-H1_LOSC_CLN_4_V1-1187007040-2048.hdf5",
+      "url": "https://gwosc.org/eventapi/json/O1_O2-Preliminary/GW170817/v2/H-H1_LOSC_CLN_4_V1-1187007040-2048.hdf5",
+      "bytes": 57932612,
+      "sha256": "27c47e0620a4668d63d13b49e3a9291a9f73ba4ea56e745999d997f6ea0b2ff6",
+      "sample_sha256": "8f891d9fa1e291e0048c4f6e47a759bacefdc563259093ac5adf94d4bcc4cc92"
+    },
+    "L1": {
+      "filename": "L-L1_LOSC_CLN_4_V1-1187007040-2048.hdf5",
+      "url": "https://gwosc.org/eventapi/json/O1_O2-Preliminary/GW170817/v2/L-L1_LOSC_CLN_4_V1-1187007040-2048.hdf5",
+      "bytes": 62057913,
+      "sha256": "f6bad02d25ffd645048d56e34f941b0a219a34afac2170f658151c5b7e71fea2",
+      "sample_sha256": "2e4d588db6e3de61efb6b5da9677f9d2145d0d6e184853e47718eb6908bcbb61"
+    },
+    "V1": {
+      "filename": "V-V1_LOSC_CLN_4_V1-1187007040-2048.hdf5",
+      "url": "https://gwosc.org/eventapi/json/O1_O2-Preliminary/GW170817/v2/V-V1_LOSC_CLN_4_V1-1187007040-2048.hdf5",
+      "bytes": 64737908,
+      "sha256": "31626b9ea4b63cf35a163b95dc8c315162585d9e48d3c5a82332ffa069c1877d",
+      "sample_sha256": "f244b7b14afba2547e19711ac2e7eab0335f0a0c81b3a7239f20438e9b21d51a"
+    }
+  }
+}
